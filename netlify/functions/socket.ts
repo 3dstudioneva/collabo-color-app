@@ -31,9 +31,11 @@ io.on('connection', (socket) => {
   });
 });
 
-const handler: Handler = (event, context) => {
-  // @ts-ignore
-  io.attach(event.server);
+const handler: Handler = async (event, context) => {
+  if (event.httpMethod === 'GET') {
+    // @ts-ignore
+    io.attach(event.server);
+  }
   return {
     statusCode: 200,
   };
