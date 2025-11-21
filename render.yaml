@@ -4,5 +4,5 @@ services:
     env: node
     plan: free
     buildCommand: 'npm install'
-    startCommand: 'npx ts-node server/server.ts'
+    startCommand: 'npx ts-node-esm server/server.ts'
     healthCheckPath: /
