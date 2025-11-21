@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start:server": "ts-node server/server.ts"
+    "start:server": "netlify-lambda serve netlify/functions"
   },
   "dependencies": {
+    "netlify-lambda": "^2.0.16",
     "@types/express": "^5.0.5",
     "@vercel/kv": "^2.0.0",
     "express": "^5.1.0",
