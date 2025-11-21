@@ -1,7 +1,11 @@
+import express from 'express';
+import http from 'http';
 import { Server } from 'socket.io';
-import type { Handler } from '@netlify/functions';
+import serverless from 'serverless-http';
 
-const io = new Server();
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
 io.on('connection', (socket) => {
   console.log('a user connected');
@@ -31,14 +35,8 @@ io.on('connection', (socket) => {
   });
 });
 
-const handler: Handler = async (event, context) => {
-  if (event.httpMethod === 'GET') {
-    // @ts-ignore
-    io.attach(event.server);
-  }
-  return {
-    statusCode: 200,
-  };
-};
+app.get('/', (req, res) => {
+  res.send('Socket.io server is running.');
+});
 
-export { handler };
+export const handler = serverless(app);
