@@ -220,7 +220,7 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
     const backgroundCanvasRef = useRef<HTMLCanvasElement>(null);
     const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const painterRef = useRef<CanvasPainter | null>(null);
-    const socket = useSocket();
+    const socket = useSocket(import.meta.env.VITE_SOCKET_URL);
 
     useEffect(() => {
         if (!backgroundCanvasRef.current || !displayCanvasRef.current || !containerRef.current) return;

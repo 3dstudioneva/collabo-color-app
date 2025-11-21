@@ -1,7 +1,14 @@
+import express from 'express';
+import http from 'http';
 import { Server } from 'socket.io';
-import type { Handler } from '@netlify/functions';
 
-const io = new Server();
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*', // Для Render разрешим все
+  },
+});
 
 io.on('connection', (socket) => {
   console.log('a user connected');
@@ -31,12 +38,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const handler: Handler = async (event, context) => {
-  // @ts-ignore
-  io.listen(3001);
-  return {
-    statusCode: 200,
-  };
-};
-
-export { handler };
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => {
+  console.log(`Socket.IO server listening on port ${PORT}`);
+});

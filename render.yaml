@@ -1,8 +1,26 @@
 services:
+  # Статический клиент (Vite)
   - type: web
-    name: collabo-color-ws
-    env: node
-    plan: free
-    buildCommand: 'npm install && npx tsc'
-    startCommand: 'node dist/server.js'
+    name: collabo-color-client
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SOCKET_URL
+        fromService:
+          type: web
+          name: collabo-color-server
+          property: url
+
+  # WebSocket сервер (Node.js)
+  - type: web
+    name: collabo-color-server
+    runtime: node
+    rootDir: ./server
+    buildCommand: npm install && tsc
+    startCommand: node server.js
     healthCheckPath: /
