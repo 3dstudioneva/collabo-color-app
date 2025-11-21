@@ -3,6 +3,6 @@ services:
     name: collabo-color-ws
     env: node
     plan: free
-    buildCommand: 'npm install'
-    startCommand: 'npx ts-node-esm server/server.ts'
+    buildCommand: 'npm install && npx tsc'
+    startCommand: 'node dist/server.js'
     healthCheckPath: /
