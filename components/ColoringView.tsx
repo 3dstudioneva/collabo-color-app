@@ -380,6 +380,10 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
         setSelectedCategory(category);
         setColoringImage(null);
         setIsImageSelected(false);
+        // Добавляем отправку события для синхронизации пустого холста
+        if (socket) {
+            socket.emit('selectImage', { image: null });
+        }
     };
 
     const handleImageSelect = (image: {id: string, src: string, name: string, category: string}) => {

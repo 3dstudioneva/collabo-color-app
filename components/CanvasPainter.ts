@@ -131,8 +131,8 @@ export class CanvasPainter {
             canvas.height = height * dpr;
             canvas.style.width = `${width}px`;
             canvas.style.height = `${height}px`;
-            const ctx = canvas.getContext('2d')!;
-            ctx.scale(dpr, dpr);
+            // ВАЖНО: Контекст НЕ нужно масштабировать.
+            // Размеры холста уже установлены с учетом dpr.
         };
 
         setupCanvas(this.backgroundCanvas);
@@ -141,7 +141,7 @@ export class CanvasPainter {
         setupCanvas(this.strokeCanvas);
         this.compositeCanvas.width = width * dpr;
         this.compositeCanvas.height = height * dpr;
-        this.compositeCtx.scale(dpr, dpr);
+        // this.compositeCtx.scale(dpr, dpr); // Также не требуется
         this.isInitialized = true;
     }
 
@@ -194,33 +194,43 @@ export class CanvasPainter {
             return;
         }
         
+        // Финальная, корректная логика для background-size: contain
         const padding = 20;
-        const canvasWidth = this.backgroundCanvas.width / dpr - padding * 2;
-        const canvasHeight = this.backgroundCanvas.height / dpr - padding * 2;
-        const canvasAspect = canvasWidth / canvasHeight;
+        // Получаем логические размеры холста
+        const canvasWidth = this.backgroundCanvas.width / dpr;
+        const canvasHeight = this.backgroundCanvas.height / dpr;
+
+        // Определяем "безопасную" область для рисования с отступами
+        const safeAreaWidth = canvasWidth - padding * 2;
+        const safeAreaHeight = canvasHeight - padding * 2;
+
         const imageAspect = image.width / image.height;
+        const safeAreaAspect = safeAreaWidth / safeAreaHeight;
 
         let drawWidth, drawHeight, offsetX, offsetY;
 
-        if (canvasAspect > imageAspect) {
-            drawHeight = canvasHeight;
-            drawWidth = drawHeight * imageAspect;
-            offsetX = (this.backgroundCanvas.width / dpr - drawWidth) / 2;
-            offsetY = padding;
-        } else {
-            drawWidth = canvasWidth;
+        if (imageAspect > safeAreaAspect) {
+            // Изображение шире, чем безопасная область -> вписываем по ширине
+            drawWidth = safeAreaWidth;
             drawHeight = drawWidth / imageAspect;
             offsetX = padding;
-            offsetY = (this.backgroundCanvas.height / dpr - drawHeight) / 2;
+            offsetY = padding + (safeAreaHeight - drawHeight) / 2;
+        } else {
+            // Изображение выше, чем безопасная область -> вписываем по высоте
+            drawHeight = safeAreaHeight;
+            drawWidth = drawHeight * imageAspect;
+            offsetX = padding + (safeAreaWidth - drawWidth) / 2;
+            offsetY = padding;
         }
-
-        ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+        
+        // Рисуем изображение, умножая на dpr, так как контекст больше не масштабирован
+        ctx.drawImage(image, offsetX * dpr, offsetY * dpr, drawWidth * dpr, drawHeight * dpr);
 
         this.imageRect = {
-            x: offsetX,
-            y: offsetY,
-            width: drawWidth,
-            height: drawHeight,
+            x: offsetX * dpr,
+            y: offsetY * dpr,
+            width: drawWidth * dpr,
+            height: drawHeight * dpr,
         };
         
         // this.clear(true);
@@ -317,20 +327,22 @@ export class CanvasPainter {
 
     private getCanvasPoint = (evt: PointerEvent): Point | null => {
         const rect = this.displayCanvas.getBoundingClientRect();
-        const canvasX = (evt.clientX - rect.left - this.offset.x) / this.zoom;
-        const canvasY = (evt.clientY - rect.top - this.offset.y) / this.zoom;
+        const dpr = window.devicePixelRatio || 1;
+        const canvasX = (evt.clientX - rect.left) * dpr;
+        const canvasY = (evt.clientY - rect.top) * dpr;
+        const transformedX = (canvasX - this.offset.x) / this.zoom;
+        const transformedY = (canvasY - this.offset.y) / this.zoom;
 
         if (this.imageRect) {
             return {
-                x: (canvasX - this.imageRect.x) / this.imageRect.width,
-                y: (canvasY - this.imageRect.y) / this.imageRect.height,
+                x: (transformedX - this.imageRect.x) / this.imageRect.width,
+                y: (transformedY - this.imageRect.y) / this.imageRect.height,
                 pressure: evt.pressure
             };
         } else {
-            const dpr = window.devicePixelRatio || 1;
             return {
-                x: canvasX / (this.drawingCanvas.width / dpr),
-                y: canvasY / (this.drawingCanvas.height / dpr),
+                x: transformedX / this.drawingCanvas.width,
+                y: transformedY / this.drawingCanvas.height,
                 pressure: evt.pressure
             };
         }
@@ -340,16 +352,14 @@ export class CanvasPainter {
         if (this.imageRect) {
             return this.imageRect.x + x * this.imageRect.width;
         }
-        const dpr = window.devicePixelRatio || 1;
-        return x * (this.drawingCanvas.width / dpr);
+        return x * this.drawingCanvas.width;
     }
 
     private getAbsoluteY = (y: number) => {
         if (this.imageRect) {
             return this.imageRect.y + y * this.imageRect.height;
         }
-        const dpr = window.devicePixelRatio || 1;
-        return y * (this.drawingCanvas.height / dpr);
+        return y * this.drawingCanvas.height;
     }
 
     private updateCompositeCanvas() {
@@ -566,8 +576,9 @@ export class CanvasPainter {
     }
 
     private applyBrushStyleToContext(ctx: CanvasRenderingContext2D, pressure: number = 0.5, settings: any) {
+        const dpr = window.devicePixelRatio || 1;
         let size = settings.brushSize * (pressure || 0.5);
-        ctx.lineWidth = size;
+        ctx.lineWidth = size * dpr;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.shadowBlur = 0;
@@ -636,8 +647,8 @@ export class CanvasPainter {
     private floodFill(ctx: CanvasRenderingContext2D, point: Point, color: string) {
         this.updateCompositeCanvas();
         const dpr = window.devicePixelRatio || 1;
-        const x = Math.floor(this.getAbsoluteX(point.x) * dpr);
-        const y = Math.floor(this.getAbsoluteY(point.y) * dpr);
+        const x = Math.floor(this.getAbsoluteX(point.x));
+        const y = Math.floor(this.getAbsoluteY(point.y));
 
         const compositeImageData = this.compositeCtx.getImageData(0, 0, this.compositeCanvas.width, this.compositeCanvas.height);
         const drawingImageData = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
@@ -720,7 +731,8 @@ export class CanvasPainter {
         const patternImage = this.patternImages.get(pattern);
         if (!patternImage) return;
 
-        const finalSize = Math.max(5, size);
+        const dpr = window.devicePixelRatio || 1;
+        const finalSize = Math.max(5, size) * dpr;
 
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = finalSize;
