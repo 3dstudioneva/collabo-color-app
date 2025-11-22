@@ -238,7 +238,7 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
     const backgroundCanvasRef = useRef<HTMLCanvasElement>(null);
     const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const painterRef = useRef<CanvasPainter | null>(null);
-    const socket = useSocket('http://localhost:3001');
+    const socket = useSocket('https://collabo-color-server.onrender.com');
 
     useEffect(() => {
         if (!backgroundCanvasRef.current || !displayCanvasRef.current || !containerRef.current) return;
