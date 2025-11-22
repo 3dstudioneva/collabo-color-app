@@ -6,15 +6,36 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // Для Render разрешим все
+    origin: '*', // Для локальной разработки разрешаем все
   },
 });
+
+interface User {
+  id: string;
+  name: string;
+}
+
+const connectedUsers: { [socketId: string]: User } = {};
 
 io.on('connection', (socket) => {
   console.log('a user connected');
 
+  socket.on('register', (user: User) => {
+    // Отправляем новому пользователю список уже подключенных
+    socket.emit('current-users', Object.values(connectedUsers));
+
+    // Регистрируем нового пользователя и оповещаем остальных
+    connectedUsers[socket.id] = user;
+    socket.broadcast.emit('user-connected', user);
+    console.log(`User ${user.name} registered`);
+  });
+
   socket.on('drawing', (data) => {
     socket.broadcast.emit('drawing', data);
+  });
+
+  socket.on('erasing', (data) => {
+    socket.broadcast.emit('erasing', data);
   });
 
   socket.on('clear', () => {
@@ -34,7 +55,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('user disconnected');
+    const user = connectedUsers[socket.id];
+    if (user) {
+      socket.broadcast.emit('user-disconnected', user);
+      delete connectedUsers[socket.id];
+      console.log(`User ${user.name} disconnected`);
+    } else {
+      console.log('user disconnected');
+    }
   });
 });
 

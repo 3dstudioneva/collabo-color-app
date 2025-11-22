@@ -10,6 +10,7 @@ interface Point {
 export interface CanvasPainterOptions {
     onColorPick: (color: string) => void;
     onDraw: (data: any) => void;
+    onErase: (data: any) => void;
 }
 
 interface PatternData {
@@ -22,6 +23,13 @@ interface CanvasObject {
     userId: string;
     type: 'stroke' | 'pattern' | 'fill';
     data: any;
+}
+
+interface ImageRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 export class CanvasPainter {
@@ -58,6 +66,7 @@ export class CanvasPainter {
     
     private patternImages: Map<string, HTMLImageElement> = new Map();
     private backgroundImage: HTMLImageElement | null = null;
+    private imageRect: ImageRect | null = null;
     private isInitialized = false;
 
     private options: CanvasPainterOptions;
@@ -160,20 +169,13 @@ export class CanvasPainter {
         this.displayCtx.drawImage(this.drawingCanvas, 0, 0);
         this.resetTransforms(this.displayCtx);
     }
-    public renderWithStroke = () => {
-        if (!this.isInitialized) return;
-        this.render();
-        this.applyTransforms(this.displayCtx);
-        this.displayCtx.drawImage(this.strokeCanvas, 0, 0);
-        this.resetTransforms(this.displayCtx);
-    }
 
     public zoomIn = () => { this.zoom *= 1.2; this.render(); }
     public zoomOut = () => { this.zoom /= 1.2; this.render(); }
     public pan = (dx: number, dy: number) => { this.offset.x += dx; this.offset.y += dy; this.render(); }
     public resetView = () => { this.zoom = 1; this.offset = { x: 0, y: 0 }; this.render(); }
 
-    public setBackgroundImage(image: HTMLImageElement) {
+    public setBackgroundImage(image: HTMLImageElement | null) {
         this.backgroundImage = image;
         const ctx = this.backgroundCanvas.getContext('2d')!;
         const dpr = window.devicePixelRatio || 1;
@@ -185,6 +187,12 @@ export class CanvasPainter {
         
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, this.backgroundCanvas.width, this.backgroundCanvas.height);
+
+        if (!image) {
+            this.imageRect = null;
+            this.render();
+            return;
+        }
         
         const padding = 20;
         const canvasWidth = this.backgroundCanvas.width / dpr - padding * 2;
@@ -207,6 +215,14 @@ export class CanvasPainter {
         }
 
         ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+
+        this.imageRect = {
+            x: offsetX,
+            y: offsetY,
+            width: drawWidth,
+            height: drawHeight,
+        };
+        
         // this.clear(true);
         this.render();
     }
@@ -299,20 +315,42 @@ export class CanvasPainter {
         link.click();
     }
 
-    private getCanvasPoint = (evt: PointerEvent): Point => {
+    private getCanvasPoint = (evt: PointerEvent): Point | null => {
         const rect = this.displayCanvas.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        const x = (evt.clientX - rect.left - this.offset.x) / this.zoom;
-        const y = (evt.clientY - rect.top - this.offset.y) / this.zoom;
-        return {
-            x: x / (this.drawingCanvas.width / dpr),
-            y: y / (this.drawingCanvas.height / dpr),
-            pressure: evt.pressure
-        };
+        const canvasX = (evt.clientX - rect.left - this.offset.x) / this.zoom;
+        const canvasY = (evt.clientY - rect.top - this.offset.y) / this.zoom;
+
+        if (this.imageRect) {
+            return {
+                x: (canvasX - this.imageRect.x) / this.imageRect.width,
+                y: (canvasY - this.imageRect.y) / this.imageRect.height,
+                pressure: evt.pressure
+            };
+        } else {
+            const dpr = window.devicePixelRatio || 1;
+            return {
+                x: canvasX / (this.drawingCanvas.width / dpr),
+                y: canvasY / (this.drawingCanvas.height / dpr),
+                pressure: evt.pressure
+            };
+        }
     }
 
-    private getAbsoluteX = (x: number) => x * (this.drawingCanvas.width / (window.devicePixelRatio || 1));
-    private getAbsoluteY = (y: number) => y * (this.drawingCanvas.height / (window.devicePixelRatio || 1));
+    private getAbsoluteX = (x: number) => {
+        if (this.imageRect) {
+            return this.imageRect.x + x * this.imageRect.width;
+        }
+        const dpr = window.devicePixelRatio || 1;
+        return x * (this.drawingCanvas.width / dpr);
+    }
+
+    private getAbsoluteY = (y: number) => {
+        if (this.imageRect) {
+            return this.imageRect.y + y * this.imageRect.height;
+        }
+        const dpr = window.devicePixelRatio || 1;
+        return y * (this.drawingCanvas.height / dpr);
+    }
 
     private updateCompositeCanvas() {
         this.compositeCtx.clearRect(0, 0, this.compositeCanvas.width, this.compositeCanvas.height);
@@ -322,7 +360,9 @@ export class CanvasPainter {
     
     private handlePointerDown = (evt: PointerEvent) => {
         this.displayCanvas.setPointerCapture(evt.pointerId);
-        this.lastPoint = this.getCanvasPoint(evt);
+        const point = this.getCanvasPoint(evt);
+        if (!point) return;
+        this.lastPoint = point;
 
         if (this.tool === Tool.Pan) {
             this.isPanning = true;
@@ -365,52 +405,33 @@ export class CanvasPainter {
             return;
         }
 
-        if (!this.isDrawing) return;
+        if (!this.isDrawing || !this.lastPoint) return;
         const currentPoint = this.getCanvasPoint(evt);
+        if (!currentPoint) return;
         
         if (this.pattern && this.preDrawImageData) {
             this.drawingCtx.putImageData(this.preDrawImageData, 0, 0);
-            const size = Math.hypot(this.getAbsoluteX(currentPoint.x) - this.getAbsoluteX(this.lastPoint!.x), this.getAbsoluteY(currentPoint.y) - this.getAbsoluteY(this.lastPoint!.y)) * 2;
-            this.drawPattern(this.drawingCtx, this.lastPoint!, size, this.color, this.pattern);
+            const size = Math.hypot(this.getAbsoluteX(currentPoint.x) - this.getAbsoluteX(this.lastPoint.x), this.getAbsoluteY(currentPoint.y) - this.getAbsoluteY(this.lastPoint.y)) * 2;
+            this.drawPattern(this.drawingCtx, this.lastPoint, size, this.color, this.pattern);
         } else if (this.tool === Tool.Brush || this.tool === Tool.Eraser) {
             const segment = { from: this.lastPoint!, to: currentPoint };
             this.currentStroke.push(segment);
-
-            // Draw on the temporary stroke canvas
-            this.strokeCtx.clearRect(0, 0, this.strokeCanvas.width, this.strokeCanvas.height);
-            this.currentStroke.forEach(seg => {
-                this.drawSegment(this.strokeCtx, seg.from, seg.to, {
-                    tool: this.tool,
-                    color: this.color,
-                    brushSize: this.brushSize,
-                    brushShape: this.brushShape,
-                    brushAlpha: this.brushAlpha,
-                });
+            this.drawSegment(this.drawingCtx, segment.from, segment.to, {
+                tool: this.tool,
+                color: this.color,
+                brushSize: this.brushSize,
+                brushShape: this.brushShape,
+                brushAlpha: this.brushAlpha,
             });
-            
-            // Render everything including the temporary stroke
-            this.renderWithStroke();
             this.lastPoint = currentPoint;
         }
+        
+        this.render();
     };
 
     private handlePointerUp = (evt: PointerEvent) => {
         if (this.isDrawing) {
-            if (this.tool === Tool.Brush && this.currentStroke.length > 0 && !this.pattern) {
-                // Draw the final stroke to the main drawing canvas
-                this.currentStroke.forEach(segment => {
-                    this.drawSegment(this.drawingCtx, segment.from, segment.to, {
-                        tool: this.tool,
-                        color: this.color,
-                        brushSize: this.brushSize,
-                        brushShape: this.brushShape,
-                        brushAlpha: this.brushAlpha,
-                    });
-                });
-                
-                // Clear the temporary stroke canvas
-                this.strokeCtx.clearRect(0, 0, this.strokeCanvas.width, this.strokeCanvas.height);
-
+            if ((this.tool === Tool.Brush || this.tool === Tool.Eraser) && this.currentStroke.length > 0 && !this.pattern) {
                 const strokeData = {
                     type: 'stroke',
                     segments: this.currentStroke,
@@ -423,17 +444,21 @@ export class CanvasPainter {
                     id: `stroke-${Date.now()}`
                 };
                 this.pushToHistory({ id: strokeData.id, userId: this.userId, type: 'stroke', data: strokeData });
-                this.options.onDraw(strokeData);
-                this.render();
+                if (this.tool === Tool.Brush) {
+                    this.options.onDraw(strokeData);
+                } else {
+                    this.options.onErase(strokeData);
+                }
             } else if (this.pattern) {
                 if (this.preDrawImageData) {
                     this.drawingCtx.putImageData(this.preDrawImageData, 0, 0);
                 }
                 const currentPoint = this.getCanvasPoint(evt);
-                const size = Math.hypot(this.getAbsoluteX(currentPoint.x) - this.getAbsoluteX(this.lastPoint!.x), this.getAbsoluteY(currentPoint.y) - this.getAbsoluteY(this.lastPoint!.y)) * 2;
+                if (!currentPoint || !this.lastPoint) return;
+                const size = Math.hypot(this.getAbsoluteX(currentPoint.x) - this.getAbsoluteX(this.lastPoint.x), this.getAbsoluteY(currentPoint.y) - this.getAbsoluteY(this.lastPoint.y)) * 2;
                 const patternData = {
                     type: 'pattern',
-                    center: this.lastPoint!,
+                    center: this.lastPoint,
                     size,
                     color: this.color,
                     pattern: this.pattern,

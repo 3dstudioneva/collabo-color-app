@@ -5,11 +5,7 @@ export const useSocket = (url: string) => {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    if (!url) return;
-
-    const socket = io(url, {
-      transports: ['websocket'],
-    });
+    const socket = io(url);
     socketRef.current = socket;
 
     return () => {

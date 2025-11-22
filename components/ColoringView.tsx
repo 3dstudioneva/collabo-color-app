@@ -20,11 +20,14 @@ const SideImageSelector: React.FC<{
     onCategoryChange: (category: string) => void;
     onBack: () => void;
     user: User;
-}> = ({ onSelect, isImageSelected, selectedCategory, onCategoryChange, onBack, user }) => {
+    connectedUsers: User[];
+}> = ({ onSelect, isImageSelected, selectedCategory, onCategoryChange, onBack, user, connectedUsers }) => {
     const filteredImages = selectedCategory === 'blank'
         ? []
         : GALLERY_IMAGES.filter(img => img.category === selectedCategory);
     
+    const otherUsers = connectedUsers.filter(u => u.id !== user.id);
+
     return (
         <div className="h-full flex flex-row items-start justify-start p-1 gap-2">
             {/* Выбор категории */}
@@ -35,6 +38,20 @@ const SideImageSelector: React.FC<{
                    </div>
                    <div className="text-sm text-wood-dark font-bold text-center mt-2">{user.name}</div>
                </div>
+
+                <div className="mb-2 border-b-2 border-wood-dark/20 pb-2">
+                    <div className="text-sm text-wood-dark font-bold text-center mb-2">В сети</div>
+                    {otherUsers.length > 0 ? (
+                        otherUsers.map(u => (
+                            <div key={u.id} className="flex items-center justify-center mb-1" title={u.name}>
+                                <img src={u.avatar} alt={u.name} className="w-8 h-8 object-contain rounded-full border-2 border-green-500" />
+                            </div>
+                        ))
+                    ) : (
+                        <div className="text-xs text-center text-gray-500">Никого нет</div>
+                    )}
+                </div>
+
                <div className="text-sm text-wood-dark font-bold text-center mb-3">Категории</div>
                <div className="flex flex-col gap-2 flex-grow">
                    <button
@@ -212,6 +229,7 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
     const [isImageSelected, setIsImageSelected] = useState(false);
     const [toolbarMode, setToolbarMode] = useState<ToolbarMode>(ToolbarMode.Brush);
     const [activePattern, setActivePattern] = useState<Pattern>(Pattern.Square);
+    const [connectedUsers, setConnectedUsers] = useState<User[]>([]);
     
     const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
     const [isCursorVisible, setIsCursorVisible] = useState(false);
@@ -220,7 +238,7 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
     const backgroundCanvasRef = useRef<HTMLCanvasElement>(null);
     const displayCanvasRef = useRef<HTMLCanvasElement>(null);
     const painterRef = useRef<CanvasPainter | null>(null);
-    const socket = useSocket(import.meta.env.VITE_SOCKET_URL);
+    const socket = useSocket('http://localhost:3001');
 
     useEffect(() => {
         if (!backgroundCanvasRef.current || !displayCanvasRef.current || !containerRef.current) return;
@@ -232,11 +250,33 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
                     socket.emit('drawing', data);
                 }
             },
+            onErase: (data) => {
+                if (socket) {
+                    socket.emit('erasing', data);
+                }
+            },
         });
         painterRef.current = painter;
         
         if (socket) {
+            socket.emit('register', { id: user.id, name: user.name, avatar: user.avatar });
+
+            socket.on('current-users', (users: User[]) => {
+                setConnectedUsers(users);
+            });
+
+            socket.on('user-connected', (user: User) => {
+                setConnectedUsers(prev => [...prev, user]);
+            });
+
+            socket.on('user-disconnected', (user: User) => {
+                setConnectedUsers(prev => prev.filter(u => u.id !== user.id));
+            });
+
             socket.on('drawing', (data) => {
+                painterRef.current?.executeDraw(data);
+            });
+            socket.on('erasing', (data) => {
                 painterRef.current?.executeDraw(data);
             });
             socket.on('clear', () => painterRef.current?.clear(true));
@@ -272,14 +312,18 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
             resizeObserver.disconnect();
             painter.destroy();
             if(socket) {
-                socket.off('draw');
+                socket.off('drawing');
+                socket.off('erasing');
                 socket.off('clear');
                 socket.off('undo');
                 socket.off('redo');
+                socket.off('current-users');
+                socket.off('user-connected');
+                socket.off('user-disconnected');
             }
         };
 
-    }, [coloringImage, socket, user.id]);
+    }, [coloringImage, socket, user.id, user.name, user.avatar]);
 
     useEffect(() => {
         if (painterRef.current) {
@@ -360,6 +404,7 @@ const ColoringView: React.FC<ColoringViewProps> = ({ user, onBackToAuth }) => {
                 onCategoryChange={handleCategoryChange}
                 onBack={handleBack}
                 user={user}
+                connectedUsers={connectedUsers}
             />
 
             <main ref={containerRef} className="w-full h-full p-2 flex-grow">
